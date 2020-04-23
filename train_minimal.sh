@@ -1,0 +1,1 @@
+python3 -m demucs -b 1 --remix_group_size 1 --samples=11025 --channels=32 --depth=4 --no_augment --specloss --beta 0.1 --musdb musdb18 --raw ../demucs/musdb18_raw

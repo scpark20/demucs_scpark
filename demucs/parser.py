@@ -52,7 +52,11 @@ def get_parser():
     parser.add_argument("--rank", default=0, type=int)
     parser.add_argument("--world_size", default=1, type=int)
     parser.add_argument("--master")
-
+    
+    parser.add_argument("--from_pretrained",
+                        type=str,
+                        default=None,
+                        help="Pretrained to store checkpoints etc")
     parser.add_argument("--checkpoints",
                         type=Path,
                         default=Path("checkpoints"),
@@ -87,6 +91,8 @@ def get_parser():
     parser.add_argument("-b", "--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--mse", action="store_true", help="Use MSE instead of L1")
+    parser.add_argument("--specloss", action="store_true", help="Use Spec and L1 loss")
+    parser.add_argument("--beta", type=float, help="spec coefficient")
     parser.add_argument("--no_augment",
                         action="store_false",
                         dest="augment",

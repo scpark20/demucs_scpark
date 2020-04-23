@@ -33,6 +33,56 @@ class SavedState:
     best_state: dict = None
     optimizer: dict = None
 
+class SpecLoss(nn.Module):
+    def __init__(self, beta):
+        super().__init__()
+        self.beta = beta
+        
+    def _get_spec(self, x):
+        # x: (batch, time)
+        
+        # (batch, bin, frame, 2)
+        spec = th.stft(x, n_fft=4096, hop_length=1024)
+        # (batch, bin, frame)
+        spec = th.sqrt(spec[:, :, :, 0] ** 2 + spec[:, :, :, 1] ** 2)
+        
+        return spec
+    
+    def _get_specs(self, x):
+        # x: (batch, instrument, channel, time)
+        
+        instruments = []
+        for i in range(x.shape[1]):
+            channels = []
+            for j in range(x.shape[2]):
+                # (batch, time)
+                _x = x[:, i, j]
+                # (batch, bin, frame)
+                spec = self._get_spec(_x)
+                channels.append(spec)
+            
+            # (batch, channel, bin, frame)
+            channels = th.stack(channels, dim=1)
+            instruments.append(channels)
+            
+        # (batch instrument, channel, bin, frame)
+        instruments = th.stack(instruments, dim=1)
+        
+        return instruments
+            
+    def forward(self, input, target):
+        # input: (batch, instrument, channel, time)
+        l1_loss = nn.L1Loss()(input, target)
+        
+        # (batch, instrument, channel, bin, frame)
+        spec_input = self._get_specs(input)
+        # (batch, instrument, channel, bin, frame)
+        spec_target = self._get_specs(target)
+        
+        spec_loss = nn.L1Loss()(spec_input, spec_target)
+        
+        return l1_loss + self.beta * spec_loss
+        
 
 def main():
     parser = get_parser()
@@ -114,12 +164,19 @@ def main():
     optimizer = th.optim.Adam(model.parameters(), lr=args.lr)
 
     try:
-        saved = th.load(checkpoint, map_location='cpu')
+        if args.from_pretrained is not None:
+            saved = th.load(args.from_pretrained, map_location='cpu')
+        else:
+            saved = th.load(checkpoint, map_location='cpu')
     except IOError:
         saved = SavedState()
     else:
-        model.load_state_dict(saved.last_state)
-        optimizer.load_state_dict(saved.optimizer)
+        if args.from_pretrained is not None:
+            model.load_state_dict(saved[3])
+            saved = SavedState()
+        else:
+            model.load_state_dict(saved.last_state)
+            optimizer.load_state_dict(saved.optimizer)
 
     if args.save_model:
         if args.rank == 0:
@@ -143,6 +200,9 @@ def main():
         criterion = nn.MSELoss()
     else:
         criterion = nn.L1Loss()
+        
+    if args.specloss:
+        criterion = SpecLoss(args.beta)
 
     # Setting number of samples so that all convolution windows are full.
     # Prevents hard to debug mistake with the prediction being shifted compared
@@ -192,7 +252,18 @@ def main():
                                          output_device=th.cuda.current_device())
     else:
         dmodel = model
-
+     
+#     model.eval()
+#     valid_loss = validate_model(0,
+#                                 valid_set,
+#                                 model,
+#                                 criterion,
+#                                 device=device,
+#                                 rank=args.rank,
+#                                 split=args.split_valid,
+#                                 world_size=args.world_size)          
+#     print(f"valid={valid_loss:.8f}")
+              
     for epoch in range(len(saved.metrics), args.epochs):
         begin = time.time()
         model.train()
